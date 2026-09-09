@@ -56,7 +56,7 @@ Ui.BarWidget {
     dimmed: !root.service || !root.service.available
       || ["starting", "scanning", "connecting", "activation-required", "released"].indexOf(root.service.connection) >= 0
     active: root.service && (root.service.connection === "error"
-      || root.service.connection === "activation-required" || root.service.fallbackActive)
+      || root.service.connection === "activation-required")
     iconComponent: Component {
       Qr65Icon {
         glyphSize: button.fontSize

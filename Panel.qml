@@ -103,9 +103,8 @@ Ui.Panel {
   }
 
   function activate() {
-    if (!svc) return
+    if (!svc || !svc.ready || svc.busy) return
     if (section === 0) {
-      if (svc.busy) return
       svc.connection === "released" ? svc.resumeDaemon() : svc.releaseToApp()
     } else if (section === 1) {
       if (modeIndex === 0) svc.setDynamic()
@@ -117,7 +116,6 @@ Ui.Panel {
       if (editorIndex === 0) hexField.forceActiveFocus()
       else if (validDraft) svc.setStatic(draftColor)
     } else if (section === 5) {
-      if (svc.busy) return
       svc.setColorMatching(!svc.colorMatching)
     } else if (section === 6 && svc.connection !== "released") svc.sync()
   }
@@ -228,7 +226,9 @@ Ui.Panel {
               trailingControl: Component {
                 Ui.ToggleSwitch {
                   id: ownershipSwitch
-                  checked: header.panelService && header.panelService.connection !== "released"
+                  enabled: header.panelService && header.panelService.ready
+                  checked: header.panelService && header.panelService.ready
+                    && header.panelService.connection !== "released"
                   busy: header.panelService && header.panelService.busy
                   hasCursor: root.section === 0
                   foreground: header.panelForeground
@@ -287,6 +287,7 @@ Ui.Panel {
                   required property string modelData
                   width: (content.width - Style.space(8)) / 2
                   text: modelData
+                  enabled: root.svc && root.svc.ready && !root.svc.busy
                   foreground: root.foreground
                   selected: root.svc && root.svc.mode === (index === 0 ? "dynamic" : "static")
                   hasCursor: root.section === 1 && root.modeIndex === index
@@ -300,13 +301,6 @@ Ui.Panel {
                   }
                 }
               }
-            }
-            Text {
-              width: parent.width
-              visible: root.svc && root.svc.fallbackActive
-              text: "Theme color unavailable; using the saved static color until it becomes available."
-              color: root.urgent; font.family: root.fontFamily; font.pixelSize: Style.font.bodySmall
-              wrapMode: Text.WordWrap; textFormat: Text.PlainText
             }
           }
 
@@ -386,7 +380,7 @@ Ui.Panel {
               }
               Ui.Button {
                 text: "Apply"
-                enabled: root.validDraft && !!root.svc
+                enabled: root.validDraft && root.svc && root.svc.ready && !root.svc.busy
                 foreground: root.foreground
                  hasCursor: root.section === 3 && root.editorIndex === 1
                 Accessible.role: Accessible.Button
@@ -473,6 +467,7 @@ Ui.Panel {
             Ui.ToggleSwitch {
               id: matchingSwitch
               checked: root.svc && root.svc.colorMatching
+              enabled: root.svc && root.svc.ready
               busy: root.svc && root.svc.busy
               hasCursor: root.section === 5
               foreground: root.foreground
@@ -501,7 +496,8 @@ Ui.Panel {
               iconText: "󰑓"
               foreground: root.foreground
               hasCursor: root.section === 6
-              enabled: !!root.svc && root.svc.connection !== "released"
+              enabled: root.svc && root.svc.ready && !root.svc.busy
+                && root.svc.connection !== "released"
               Accessible.role: Accessible.Button
               Accessible.name: "Reapply current QR65 color"
               Accessible.onPressAction: clicked()

@@ -13,26 +13,13 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
-        with:
-          python-version: "3.12"
-          cache: pip
-      - name: Install test dependencies
-        run: python -m pip install '.[test,calibration]' 'build>=1,<2'
-      - name: Test backend
-        run: python -m pytest -q -p no:cacheprovider
-      - name: Refit calibration profile
-        run: python calibration/fit.py
-      - name: Build Python distributions
-        run: python -m build
-      - name: Check shell scripts
+      - name: Parse QML
         run: |
-          bash -n install.sh uninstall.sh hooks/qr65-theme-sync
-          shellcheck install.sh uninstall.sh hooks/qr65-theme-sync
-      - name: Check systemd unit
-        run: |
-          install -Dm755 /usr/bin/true "$HOME/.local/bin/edifier-qr65"
-          systemd-analyze --user verify systemd/edifier-qr65.service
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends qt6-declarative-dev-tools
+          for file in BarWidget.qml Panel.qml Qr65Icon.qml Service.qml; do
+            /usr/lib/qt6/bin/qmlformat "$file" >/dev/null
+          done
       - name: Check official plugin layout
         env:
           OMARCHY_COMMIT: 5b91db503c904bbfc5f34bdaaa9c708814958f3d

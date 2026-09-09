@@ -1,6 +1,7 @@
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import qs.Commons
 
 // Quickshell exposes QProcess signal parameters that qmllint cannot resolve.
 // qmllint disable signal-handler-parameters
@@ -12,9 +13,12 @@ QtObject {
   property var manifest: null
 
   property bool available: false
+  property bool compatible: false
   property bool terminating: false
   readonly property bool busy: commandProcess.running || terminating || currentKind !== ""
   property int version: 0
+  property int apiVersion: 0
+  property string daemonVersion: ""
   property string mode: "dynamic"
   property string configuredStaticColor: "#FFFFFF"
   property int configuredBrightness: -1
@@ -33,12 +37,15 @@ QtObject {
   property bool queuedSync: false
   property bool queuedStatus: false
   property string currentKind: ""
+  property string activeDynamicColor: ""
+  property string pendingMode: ""
   property bool timedOut: false
 
   readonly property string executable: (Quickshell.env("HOME") || "") + "/.local/bin/edifier-qr65"
-  readonly property int statusHeartbeatMaxAgeSec: 15
-  readonly property bool fallbackActive: mode === "dynamic"
-    && requestedSource === "static-fallback"
+  readonly property string themeAccent: String(Color.accent || "").toUpperCase()
+  readonly property int statusHeartbeatMaxAgeSec: 60
+  readonly property int statusFutureSkewSec: 5
+  readonly property bool ready: compatible && available
   readonly property bool connected: available && connection === "connected"
 
   function validColor(value, allowEmpty) {
@@ -65,25 +72,37 @@ QtObject {
     error = boundedDiagnostic(reason, "QR65 status is unavailable.")
   }
 
+  function invalidateApi(reason) {
+    compatible = false
+    apiVersion = 0
+    daemonVersion = ""
+    queuedAction = null
+    queuedSync = false
+    pendingMode = ""
+    setUnavailable(reason)
+  }
+
   function statusIsStale(timestamp) {
-    return timestamp <= 0 || Date.now() / 1000 - timestamp > statusHeartbeatMaxAgeSec
+    var now = Date.now() / 1000
+    return timestamp <= 0 || timestamp > now + statusFutureSkewSec
+      || now - timestamp > statusHeartbeatMaxAgeSec
   }
 
   function enforceStatusAge() {
     if (available && connection === "connected" && statusIsStale(updatedAt))
-      setUnavailable("QR65 connected status is stale (over 15 seconds old).")
+      setUnavailable("QR65 connected status is stale or has an invalid timestamp.")
   }
 
   function applyStatus(raw) {
     var text = String(raw || "")
     if (text.length === 0 || text.length > 65536) {
-      setUnavailable(text.length > 65536 ? "QR65 status exceeded 64 KiB." : "QR65 returned no status.")
+      invalidateApi(text.length > 65536 ? "QR65 status exceeded 64 KiB." : "QR65 returned no status.")
       return false
     }
 
     var status
     try { status = JSON.parse(text) } catch (parseError) {
-      setUnavailable("QR65 returned malformed JSON.")
+      invalidateApi("QR65 returned malformed JSON.")
       return false
     }
     var connections = ["starting", "scanning", "activation-required", "connecting", "connected", "released", "error"]
@@ -110,11 +129,11 @@ QtObject {
         || connections.indexOf(status.connection) < 0
         || typeof status.message !== "string" || status.message.length > 2048
         || typeof status.updatedAt !== "number" || !isFinite(status.updatedAt)) {
-      setUnavailable("QR65 returned an unsupported status payload.")
+      invalidateApi("QR65 returned an unsupported status payload.")
       return false
     }
     if (status.connection === "connected" && statusIsStale(status.updatedAt)) {
-      setUnavailable("QR65 connected status is stale (over 15 seconds old).")
+      setUnavailable("QR65 connected status is stale or has an invalid timestamp.")
       return false
     }
 
@@ -134,12 +153,59 @@ QtObject {
     updatedAt = status.updatedAt
     available = true
     error = ""
+    pendingMode = ""
+    queueThemeColor()
     return true
+  }
+
+  function applyApi(raw) {
+    var text = String(raw || "")
+    if (text.length === 0 || text.length > 65536) {
+      invalidateApi(text.length > 65536 ? "QR65 API response exceeded 64 KiB."
+        : "Edifier QR65 daemon is not installed or unavailable.")
+      return false
+    }
+    var api
+    try { api = JSON.parse(text) } catch (parseError) {
+      invalidateApi("Edifier QR65 daemon returned malformed API metadata.")
+      return false
+    }
+    if (!api || Array.isArray(api) || typeof api !== "object"
+        || api.apiVersion !== 1 || api.statusVersion !== 1
+        || typeof api.daemonVersion !== "string" || api.daemonVersion.length > 64) {
+      invalidateApi("Edifier QR65 daemon API version 1 is required.")
+      return false
+    }
+    apiVersion = api.apiVersion
+    daemonVersion = api.daemonVersion
+    compatible = true
+    error = ""
+    return true
+  }
+
+  function queueThemeColor() {
+    var queuedColor = queuedAction && queuedAction.kind === "dynamic"
+      ? queuedAction.args[2] : ""
+    if (!compatible || !available || mode !== "dynamic" || !validColor(themeAccent, false)) return
+    if (pendingMode === "static" || currentKind === "static"
+        || (queuedAction && queuedAction.kind === "static")) return
+    if (activeDynamicColor === themeAccent
+        || (requestedColor === themeAccent && activeDynamicColor === "")) {
+      if (queuedAction && queuedAction.kind === "dynamic") queuedAction = null
+      return
+    }
+    if (queuedColor === themeAccent) return
+    var action = { kind: "dynamic", args: ["mode", "dynamic", themeAccent] }
+    if (busy) {
+      queuedAction = action
+      queuedSync = false
+    } else launch(action.kind, action.args)
   }
 
   function launch(kind, args) {
     if (busy || executable === "") return false
     currentKind = kind
+    activeDynamicColor = kind === "dynamic" ? args[2] : ""
     timedOut = false
     commandProcess.command = [executable].concat(args)
     timeoutTimer.restart()
@@ -152,11 +218,14 @@ QtObject {
       queuedStatus = true
       return
     }
-    launch("status", ["status", "--json"])
+    if (compatible) launch("status", ["status", "--json"])
+    else launch("api", ["api-version", "--json"])
   }
 
   function setDynamic() {
-    var action = { kind: "dynamic", args: ["mode", "dynamic"] }
+    if (!compatible || !validColor(themeAccent, false)) return false
+    pendingMode = "dynamic"
+    var action = { kind: "dynamic", args: ["mode", "dynamic", themeAccent] }
     if (busy) {
       queuedAction = action
       queuedSync = false
@@ -166,12 +235,14 @@ QtObject {
   }
 
   function setStatic(color) {
+    if (!compatible) return false
     var normalized = String(color || "").toUpperCase()
     if (!validColor(normalized, false)) {
       actionMessage = "Enter a color as #RRGGBB."
       actionMessageTimer.restart()
       return false
     }
+    pendingMode = "static"
     var action = { kind: "static", args: ["mode", "static", normalized] }
     if (busy) {
       queuedAction = action
@@ -182,12 +253,15 @@ QtObject {
   }
 
   function sync() {
+    if (!compatible) return false
+    if (mode === "dynamic") return setDynamic()
     if (busy) queuedSync = true
     else launch("sync", ["sync"])
     return true
   }
 
   function setBrightness(value) {
+    if (!compatible) return false
     var percent = Math.max(0, Math.min(100, Math.round(Number(value))))
     var action = { kind: "brightness", args: ["brightness", String(percent)] }
     configuredBrightness = percent
@@ -199,6 +273,7 @@ QtObject {
   }
 
   function setColorMatching(enabled) {
+    if (!compatible) return false
     var value = !!enabled
     var action = { kind: "matching", args: ["color-matching", value ? "on" : "off"] }
     colorMatching = value
@@ -210,6 +285,7 @@ QtObject {
   }
 
   function releaseToApp() {
+    if (!compatible) return false
     var action = { kind: "release", args: ["release"] }
     if (busy) {
       queuedAction = action
@@ -219,6 +295,7 @@ QtObject {
   }
 
   function resumeDaemon() {
+    if (!compatible) return false
     var action = { kind: "resume", args: ["resume"] }
     if (busy) {
       queuedAction = action
@@ -229,7 +306,9 @@ QtObject {
 
   function statusJson() {
     return JSON.stringify({
-      available: available, version: version, mode: mode,
+      available: available, compatible: compatible, ready: ready,
+      apiVersion: apiVersion, daemonVersion: daemonVersion,
+      version: version, mode: mode,
       configuredStaticColor: configuredStaticColor,
       configuredBrightness: configuredBrightness, colorMatching: colorMatching,
       requestedColor: requestedColor, requestedSource: requestedSource,
@@ -249,10 +328,11 @@ QtObject {
       launch("sync", ["sync"])
     } else if (queuedStatus) {
       queuedStatus = false
-      launch("status", ["status", "--json"])
+      refresh()
     }
   }
 
+  onThemeAccentChanged: queueThemeColor()
   Component.onCompleted: refresh()
 
   property Timer pollTimer: Timer {
@@ -275,7 +355,7 @@ QtObject {
       root.timedOut = true
       root.terminating = true
       root.queuedStatus = true
-      root.setUnavailable("QR65 command timed out.")
+      root.invalidateApi("QR65 command timed out.")
       if (root.commandProcess.running) root.commandProcess.running = false
     }
   }
@@ -295,10 +375,17 @@ QtObject {
       root.timeoutTimer.stop()
       var kind = root.currentKind
       root.currentKind = ""
+      root.activeDynamicColor = ""
       if (!root.timedOut) {
-        if (kind === "status") {
+        if (kind === "api") {
+          if (exitCode === 0 && root.applyApi(commandOut.text)) root.queuedStatus = true
+          else if (exitCode !== 0) {
+            root.invalidateApi(root.boundedDiagnostic(commandErr.text,
+              "Edifier QR65 daemon is not installed or unavailable."))
+          }
+        } else if (kind === "status") {
           if (exitCode === 0) root.applyStatus(commandOut.text)
-          else root.setUnavailable(root.boundedDiagnostic(commandErr.text, "QR65 status command failed."))
+          else root.invalidateApi(root.boundedDiagnostic(commandErr.text, "QR65 status command failed."))
         } else {
           if (exitCode === 0) {
             root.actionMessage = kind === "dynamic" ? "Following theme colors."
@@ -310,6 +397,7 @@ QtObject {
             root.error = ""
           } else {
             root.actionMessage = root.boundedDiagnostic(commandErr.text, "QR65 command failed.")
+            if (kind === "dynamic" || kind === "static") root.pendingMode = ""
           }
           root.actionMessageTimer.restart()
           root.queuedStatus = true
