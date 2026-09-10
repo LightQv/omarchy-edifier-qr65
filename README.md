@@ -64,6 +64,27 @@ There is **no Omarchy theme hook**: the plugin neither installs nor needs one.
 Theme resolution belongs to this QML frontend; BLE access and hardware state
 remain the external daemon's responsibility.
 
+The profile accepts any theme accent, not just the themes used during calibration.
+If Follow Theme does nothing, inspect the live frontend separately from the daemon:
+
+```bash
+omarchy-shell lightqv.edifier-qr65 status
+edifier-qr65 status --json
+```
+
+Frontend diagnostics include `themeAccent`, `themeAccentValid`, API readiness,
+active command, pending mode, and queued action. Invalid accents now produce panel
+feedback. After updating plugin code, try `omarchy-shell shell rescanPlugins`;
+if the old code remains loaded or the diagnostic target is missing, use
+`omarchy restart shell`. This restarts the desktop shell, not the QR65 daemon.
+
+The following IPC helpers invoke the same service methods as the panel:
+
+```bash
+omarchy-shell lightqv.edifier-qr65 followTheme
+omarchy-shell lightqv.edifier-qr65 staticColor '#FFFFFF'
+```
+
 ## QR65 activation constraint
 
 The tested QR65 exposes its control connection only while Bluetooth input has
@@ -127,6 +148,7 @@ Validate a checkout against Omarchy's official plugin rules:
 
 ```bash
 omarchy plugin validate .
+node --test service.test.cjs
 ```
 
 CI runs the same official layout validation against a pinned Omarchy revision.

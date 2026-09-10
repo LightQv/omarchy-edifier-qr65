@@ -43,6 +43,7 @@ QtObject {
 
   readonly property string executable: (Quickshell.env("HOME") || "") + "/.local/bin/edifier-qr65"
   readonly property string themeAccent: String(Color.accent || "").toUpperCase()
+  readonly property bool themeAccentValid: validColor(themeAccent, false)
   readonly property int statusHeartbeatMaxAgeSec: 60
   readonly property int statusFutureSkewSec: 5
   readonly property bool ready: compatible && available
@@ -223,7 +224,12 @@ QtObject {
   }
 
   function setDynamic() {
-    if (!compatible || !validColor(themeAccent, false)) return false
+    if (!compatible || !themeAccentValid) {
+      actionMessage = !compatible ? "QR65 daemon API is not ready."
+        : "Theme accent is unavailable or invalid. Reload the shell and try again."
+      actionMessageTimer.restart()
+      return false
+    }
     pendingMode = "dynamic"
     var action = { kind: "dynamic", args: ["mode", "dynamic", themeAccent] }
     if (busy) {
@@ -307,6 +313,8 @@ QtObject {
   function statusJson() {
     return JSON.stringify({
       available: available, compatible: compatible, ready: ready,
+      themeAccent: themeAccent, themeAccentValid: themeAccentValid,
+      currentKind: currentKind, pendingMode: pendingMode, queuedAction: queuedAction,
       apiVersion: apiVersion, daemonVersion: daemonVersion,
       version: version, mode: mode,
       configuredStaticColor: configuredStaticColor,
@@ -333,6 +341,12 @@ QtObject {
   }
 
   onThemeAccentChanged: queueThemeColor()
+  property IpcHandler diagnosticIpc: IpcHandler {
+    target: "lightqv.edifier-qr65"
+    function status(): string { return root.statusJson() }
+    function followTheme(): bool { return root.setDynamic() }
+    function staticColor(color: string): bool { return root.setStatic(color) }
+  }
   Component.onCompleted: refresh()
 
   property Timer pollTimer: Timer {

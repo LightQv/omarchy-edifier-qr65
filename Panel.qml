@@ -272,6 +272,15 @@ Ui.Panel {
             wrapMode: Text.WordWrap; textFormat: Text.PlainText
           }
 
+          Text {
+            width: parent.width
+            visible: root.svc && root.svc.ready && !root.svc.themeAccentValid
+            text: "Theme accent unavailable. Reload the shell to restore Follow Theme."
+            color: root.urgent
+            font.family: root.fontFamily; font.pixelSize: Style.font.bodySmall
+            wrapMode: Text.WordWrap; textFormat: Text.PlainText
+          }
+
           Column {
             id: modeSection
             width: parent.width
