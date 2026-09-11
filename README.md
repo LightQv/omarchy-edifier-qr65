@@ -31,7 +31,7 @@ Install the two projects in this order:
 2. Add this QML plugin:
 
    ```bash
-   omarchy plugin add https://github.com/LightQv/omarchy-edifier-qr65.git --yes
+   omarchy plugin add https://github.com/LightQv/omarchy-edifier-qr65.git --enable
    ```
 
 No second installer step is required or provided by this repository.
