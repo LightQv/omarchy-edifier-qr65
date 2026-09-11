@@ -72,13 +72,17 @@ Ui.BarWidget {
       var lines = ["Edifier QR65",
         "Mode: " + (root.service.mode === "dynamic" ? "Follow Theme" : "Static Color")]
       lines.push("Screen matching: " + (root.service.colorMatching ? "On" : "Off"))
+      if (root.service.connection === "connected"
+          && root.service.validColor(root.service.requestedColor, false)
+          && root.service.validColor(root.service.appliedColor, false))
+        lines.push("HEX: " + root.service.requestedColor + " -> " + root.service.appliedColor)
       if (root.service.appliedBrightness >= 0)
         lines.push("Brightness: " + root.service.appliedBrightness + "%")
       if (root.service.connection === "starting") lines.push("Starting QR65 control...")
       if (root.service.connection === "scanning") lines.push("Searching for the QR65...")
       if (root.service.connection === "connecting") lines.push("Connecting to the QR65...")
       if (root.service.connection === "activation-required")
-        lines.push("Switch to Bluetooth input and let the paired phone connect.")
+        lines.push("Switch to Bluetooth input and connect a paired Bluetooth audio host.")
       if (root.service.connection === "released")
         lines.push("Control released to ConneX.")
       if (root.service.connection === "error")

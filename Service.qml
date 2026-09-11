@@ -77,7 +77,8 @@ QtObject {
     compatible = false
     apiVersion = 0
     daemonVersion = ""
-    queuedAction = null
+    if (!queuedAction || (queuedAction.kind !== "release" && queuedAction.kind !== "resume"))
+      queuedAction = null
     queuedSync = false
     pendingMode = ""
     setUnavailable(reason)
@@ -187,7 +188,10 @@ QtObject {
   function queueThemeColor() {
     var queuedColor = queuedAction && queuedAction.kind === "dynamic"
       ? queuedAction.args[2] : ""
-    if (!compatible || !available || mode !== "dynamic" || !validColor(themeAccent, false)) return
+    if (!compatible || !available || connection === "released" || mode !== "dynamic"
+        || !validColor(themeAccent, false)) return
+    if (currentKind === "release" || currentKind === "resume"
+        || (queuedAction && queuedAction.kind !== "dynamic")) return
     if (pendingMode === "static" || currentKind === "static"
         || (queuedAction && queuedAction.kind === "static")) return
     if (activeDynamicColor === themeAccent
@@ -223,6 +227,13 @@ QtObject {
     else launch("api", ["api-version", "--json"])
   }
 
+  function lightingAvailable() {
+    if (connection !== "released") return true
+    actionMessage = "Resume QR65 control before changing lighting."
+    actionMessageTimer.restart()
+    return false
+  }
+
   function setDynamic() {
     if (!compatible || !themeAccentValid) {
       actionMessage = !compatible ? "QR65 daemon API is not ready."
@@ -230,6 +241,7 @@ QtObject {
       actionMessageTimer.restart()
       return false
     }
+    if (!lightingAvailable()) return false
     pendingMode = "dynamic"
     var action = { kind: "dynamic", args: ["mode", "dynamic", themeAccent] }
     if (busy) {
@@ -242,6 +254,7 @@ QtObject {
 
   function setStatic(color) {
     if (!compatible) return false
+    if (!lightingAvailable()) return false
     var normalized = String(color || "").toUpperCase()
     if (!validColor(normalized, false)) {
       actionMessage = "Enter a color as #RRGGBB."
@@ -259,7 +272,7 @@ QtObject {
   }
 
   function sync() {
-    if (!compatible) return false
+    if (!compatible || !lightingAvailable()) return false
     if (mode === "dynamic") return setDynamic()
     if (busy) queuedSync = true
     else launch("sync", ["sync"])
@@ -267,7 +280,7 @@ QtObject {
   }
 
   function setBrightness(value) {
-    if (!compatible) return false
+    if (!compatible || !lightingAvailable()) return false
     var percent = Math.max(0, Math.min(100, Math.round(Number(value))))
     var action = { kind: "brightness", args: ["brightness", String(percent)] }
     configuredBrightness = percent
@@ -279,7 +292,7 @@ QtObject {
   }
 
   function setColorMatching(enabled) {
-    if (!compatible) return false
+    if (!compatible || !lightingAvailable()) return false
     var value = !!enabled
     var action = { kind: "matching", args: ["color-matching", value ? "on" : "off"] }
     colorMatching = value

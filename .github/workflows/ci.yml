@@ -20,6 +20,8 @@ jobs:
           for file in BarWidget.qml Panel.qml Qr65Icon.qml Service.qml; do
             /usr/lib/qt6/bin/qmlformat "$file" >/dev/null
           done
+      - name: Test service behavior
+        run: node --test service.test.cjs
       - name: Check official plugin layout
         env:
           OMARCHY_COMMIT: 5b91db503c904bbfc5f34bdaaa9c708814958f3d

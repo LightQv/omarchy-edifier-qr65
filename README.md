@@ -87,18 +87,36 @@ omarchy-shell lightqv.edifier-qr65 staticColor '#FFFFFF'
 
 ## QR65 activation constraint
 
-The tested QR65 exposes its control connection only while Bluetooth input has
-an active Bluetooth Classic connection. When the panel reports **Activation
-required**:
+After a cold speaker start, the tested QR65 exposes its control connection when
+Bluetooth input has an active Bluetooth Classic connection. When the panel
+reports **Activation required**:
 
 1. Switch the speaker to Bluetooth input.
-2. Let a previously paired phone connect while ConneX is closed.
+2. Connect any previously paired Bluetooth audio host, such as this computer or
+   a phone. It does not need to be Linux's default output, and ConneX is not
+   required.
 3. Wait for the daemon to connect, then switch back to wired input if desired.
+
+If the speaker remains on Bluetooth input, the operating system may reconnect
+its audio endpoint automatically after power cycles and boots. Pairing, audio
+connection, codec selection, and output routing are outside this plugin and the
+BLE daemon.
+
+A warm speaker sometimes permits BLE reconnection without Classic audio, but
+that is not a reliable cold-start procedure. A cold start on RCA exposed no
+tested control path to Linux or ConneX.
 
 ConneX and the daemon cannot hold the QR65 BLE control connection at the same
 time. Use the panel's handoff switch before opening ConneX, close ConneX before
 resuming, and repeat the activation flow after a power cycle or lost connection
-when requested.
+when requested. Releasing is temporary: because the daemon service remains
+enabled, it starts again after the next login/reboot. Lighting controls remain
+disabled while released so the panel cannot imply that ConneX-owned changes were
+applied by the daemon.
+
+While connected, the bar-icon tooltip reports the requested display color and
+device-confirmed command as `HEX: #RRGGBB -> #RRGGBB`. Equal values indicate
+literal matching; different values expose the active calibration transform.
 
 ## Missing or incompatible daemon
 

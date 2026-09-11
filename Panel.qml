@@ -26,6 +26,8 @@ Ui.Panel {
   readonly property var colorPresets: ["#FFFFFF", "#FFB86C", "#FF5555", "#FF79C6",
     "#BD93F9", "#89B4FA", "#8BE9FD", "#50FA7B"]
   readonly property bool validDraft: /^#[0-9A-Fa-f]{6}$/.test(draftColor)
+  readonly property bool lightingControlsEnabled: svc && svc.ready && !svc.busy
+    && svc.connection !== "released"
   readonly property var barIdentity: hostWidget || root
   readonly property color foreground: bar ? bar.barForeground : Color.foreground
   readonly property color urgent: bar ? bar.urgent : Color.urgent
@@ -104,6 +106,7 @@ Ui.Panel {
 
   function activate() {
     if (!svc || !svc.ready || svc.busy) return
+    if (svc.connection === "released" && section !== 0) return
     if (section === 0) {
       svc.connection === "released" ? svc.resumeDaemon() : svc.releaseToApp()
     } else if (section === 1) {
@@ -121,6 +124,7 @@ Ui.Panel {
   }
 
   function choosePalette(index) {
+    if (!lightingControlsEnabled) return
     section = 2
     paletteIndex = index
     draftColor = colorPresets[index]
@@ -235,6 +239,12 @@ Ui.Panel {
                   onHovered: function(value) { if (value) root.section = 0 }
                   onToggled: if (header.panelService) checked
                     ? header.panelService.releaseToApp() : header.panelService.resumeDaemon()
+                  Accessible.role: Accessible.CheckBox
+                  Accessible.name: "QR65 BLE control"
+                  Accessible.description: checked ? "Owned by daemon" : "Released to ConneX"
+                  Accessible.checked: checked
+                  Accessible.onPressAction: if (header.panelService) checked
+                    ? header.panelService.releaseToApp() : header.panelService.resumeDaemon()
                   Ui.PanelToolTip {
                     visible: ownershipSwitch.containsMouse
                     text: ownershipSwitch.checked ? "Release to ConneX" : "Resume QR65 control"
@@ -250,7 +260,7 @@ Ui.Panel {
           Text {
             width: parent.width
             visible: root.svc && root.svc.connection === "activation-required"
-            text: "Switch the QR65 to Bluetooth input. Let the paired phone connect with ConneX closed; after Linux connects, switch back to wired input."
+            text: "Switch the QR65 to Bluetooth input and connect any paired Bluetooth audio host. ConneX is not required; switch back to wired after BLE connects if desired."
             color: root.urgent; font.family: root.fontFamily; font.pixelSize: Style.font.bodySmall
             wrapMode: Text.WordWrap; textFormat: Text.PlainText
           }
@@ -267,7 +277,7 @@ Ui.Panel {
           Text {
             width: parent.width
             visible: root.svc && root.svc.connection === "released"
-            text: "BLE is available to ConneX. Connect the phone to QR65 Bluetooth audio before opening the app. Close ConneX before resuming."
+            text: "BLE is available to ConneX. Keep a paired audio host connected if the speaker is not visible. Close ConneX before resuming; control also returns after login/reboot."
             color: root.foreground; font.family: root.fontFamily; font.pixelSize: Style.font.bodySmall
             wrapMode: Text.WordWrap; textFormat: Text.PlainText
           }
@@ -296,7 +306,7 @@ Ui.Panel {
                   required property string modelData
                   width: (content.width - Style.space(8)) / 2
                   text: modelData
-                  enabled: root.svc && root.svc.ready && !root.svc.busy
+                  enabled: root.lightingControlsEnabled
                   foreground: root.foreground
                   selected: root.svc && root.svc.mode === (index === 0 ? "dynamic" : "static")
                   hasCursor: root.section === 1 && root.modeIndex === index
@@ -337,6 +347,7 @@ Ui.Panel {
                   required property string modelData
                   width: (content.width - Style.space(24)) / 4
                   height: Style.space(34)
+                  enabled: root.lightingControlsEnabled
                    hasCursor: root.section === 2 && root.paletteIndex === index
                   current: root.svc && root.svc.mode === "static"
                     && root.svc.configuredStaticColor.toUpperCase() === modelData
@@ -372,6 +383,7 @@ Ui.Panel {
                 id: hexField
                 Layout.fillWidth: true
                 text: root.draftColor
+                enabled: root.lightingControlsEnabled
                 placeholderText: "#RRGGBB"
                 foreground: root.validDraft ? root.foreground : root.urgent
                  hasCursor: root.section === 3 && root.editorIndex === 0
@@ -389,7 +401,7 @@ Ui.Panel {
               }
               Ui.Button {
                 text: "Apply"
-                enabled: root.validDraft && root.svc && root.svc.ready && !root.svc.busy
+                enabled: root.validDraft && root.lightingControlsEnabled
                 foreground: root.foreground
                  hasCursor: root.section === 3 && root.editorIndex === 1
                 Accessible.role: Accessible.Button
@@ -476,7 +488,7 @@ Ui.Panel {
             Ui.ToggleSwitch {
               id: matchingSwitch
               checked: root.svc && root.svc.colorMatching
-              enabled: root.svc && root.svc.ready
+              enabled: root.lightingControlsEnabled
               busy: root.svc && root.svc.busy
               hasCursor: root.section === 5
               foreground: root.foreground
@@ -484,6 +496,10 @@ Ui.Panel {
               anchors.verticalCenter: parent.verticalCenter
               onHovered: function(value) { if (value) root.section = 5 }
               onToggled: if (root.svc) root.svc.setColorMatching(!checked)
+              Accessible.role: Accessible.CheckBox
+              Accessible.name: "Match screen colors"
+              Accessible.checked: checked
+              Accessible.onPressAction: if (root.svc) root.svc.setColorMatching(!checked)
               Ui.PanelToolTip {
                 visible: matchingSwitch.containsMouse
                 text: matchingSwitch.checked ? "Use literal RGB"

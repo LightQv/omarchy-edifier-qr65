@@ -9,14 +9,17 @@ const source = readFileSync(`${__dirname}/Service.qml`, 'utf8');
 function service() {
   const calls = [];
   const context = vm.createContext({
-    compatible: true, available: true, themeAccent: '#509475',
+    compatible: true, available: true, connection: 'connected', themeAccent: '#509475',
     themeAccentValid: true, mode: 'static', pendingMode: '', currentKind: '',
     queuedAction: null, queuedSync: false, busy: false,
+    apiVersion: 1, daemonVersion: '0.1.0',
     activeDynamicColor: '', requestedColor: '#FFFFFF', actionMessage: '',
     actionMessageTimer: { restart() {} },
     launch(kind, args) { calls.push({ kind, args: Array.from(args) }); return true; },
   });
-  for (const name of ['validColor', 'setDynamic', 'setStatic', 'queueThemeColor']) {
+  for (const name of ['validColor', 'boundedDiagnostic', 'setUnavailable', 'invalidateApi',
+    'lightingAvailable', 'setDynamic', 'setStatic', 'queueThemeColor', 'releaseToApp',
+    'resumeDaemon']) {
     const match = source.match(new RegExp(`  function ${name}\\([^]*?\\n  }`));
     assert.ok(match, `Missing ${name}`);
     vm.runInContext(match[0], context);
@@ -72,4 +75,62 @@ test('explicit static intent blocks automatic theme updates', () => {
   c.queueThemeColor();
   assert.equal(c.queuedAction.kind, 'static');
   assert.equal(c.queuedAction.args[2], '#FFB86C');
+});
+
+test('release and resume map to lifecycle commands', () => {
+  const { context: c, calls } = service();
+  assert.equal(c.releaseToApp(), true);
+  assert.equal(c.resumeDaemon(), true);
+  assert.deepEqual(calls, [
+    { kind: 'release', args: ['release'] },
+    { kind: 'resume', args: ['resume'] },
+  ]);
+});
+
+test('latest lifecycle intent replaces a busy queued action', () => {
+  const { context: c, calls } = service();
+  c.busy = true;
+  c.queuedSync = true;
+  assert.equal(c.releaseToApp(), true);
+  assert.equal(c.queuedAction.kind, 'release');
+  assert.equal(c.queuedSync, false);
+  assert.equal(c.resumeDaemon(), true);
+  assert.equal(c.queuedAction.kind, 'resume');
+  assert.equal(calls.length, 0);
+});
+
+test('automatic theme updates preserve queued lifecycle intent', () => {
+  const { context: c } = service();
+  c.mode = 'dynamic'; c.busy = true;
+  c.releaseToApp();
+  c.themeAccent = '#CBA6F7';
+  c.queueThemeColor();
+  assert.equal(c.queuedAction.kind, 'release');
+});
+
+test('automatic theme updates preserve queued explicit controls', () => {
+  const { context: c } = service();
+  c.mode = 'dynamic'; c.busy = true;
+  c.queuedAction = { kind: 'matching', args: ['color-matching', 'on'] };
+  c.themeAccent = '#CBA6F7';
+  c.queueThemeColor();
+  assert.equal(c.queuedAction.kind, 'matching');
+});
+
+test('API invalidation preserves accepted lifecycle intent', () => {
+  const { context: c } = service();
+  c.busy = true;
+  c.releaseToApp();
+  c.invalidateApi('Malformed status.');
+  assert.equal(c.queuedAction.kind, 'release');
+});
+
+test('lighting changes are blocked while released', () => {
+  const { context: c, calls } = service();
+  c.connection = 'released';
+  assert.equal(c.setDynamic(), false);
+  assert.equal(c.setStatic('#FFB86C'), false);
+  c.queueThemeColor();
+  assert.match(c.actionMessage, /Resume QR65 control/);
+  assert.equal(calls.length, 0);
 });
