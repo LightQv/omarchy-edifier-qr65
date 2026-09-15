@@ -10,6 +10,10 @@ ambient lighting from the shell bar.
 > [`LightQv/edifier-qr65`](https://github.com/LightQv/edifier-qr65) **Consumer API
 > v1** and does not own that daemon's installation, updates, startup, or removal.
 
+## Preview
+
+![Edifier QR65 Omarchy plugin showing the bar widget and lighting controls](docs/screenshot.png)
+
 ## Requirements
 
 - Omarchy with shell plugin support
