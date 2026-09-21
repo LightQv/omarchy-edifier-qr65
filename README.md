@@ -17,7 +17,9 @@ ambient lighting from the shell bar.
 ## Requirements
 
 - Omarchy with shell plugin support
-- The daemon installer's launcher at `~/.local/bin/edifier-qr65`
+- Edifier QR65 daemon release **v0.1.1** at reviewed commit
+  `ef4d923106adcf9cbb80a087b306c9eb16fdf1fd`, with its launcher at
+  `~/.local/bin/edifier-qr65`
 - Consumer API version **1** and status schema version **1**
 
 API/status version 1 is the minimum supported contract. The current plugin
@@ -28,10 +30,15 @@ missing, malformed, stale, or incompatible.
 
 Install the two projects in this order:
 
-1. Install the daemon from
-   [`LightQv/edifier-qr65`](https://github.com/LightQv/edifier-qr65) using the
-   installer provided by that project. Its documentation is authoritative for
-   daemon requirements and setup.
+1. Install the reviewed daemon release. Its documentation is authoritative for
+   daemon requirements and setup:
+
+   ```bash
+   git clone https://github.com/LightQv/edifier-qr65.git
+   cd edifier-qr65
+   git checkout --detach ef4d923106adcf9cbb80a087b306c9eb16fdf1fd
+   ./install.sh
+   ```
 2. Add this QML plugin:
 
    ```bash
@@ -118,6 +125,11 @@ enabled, it starts again after the next login/reboot. Lighting controls remain
 disabled while released so the panel cannot imply that ConneX-owned changes were
 applied by the daemon.
 
+The plugin does not invoke `systemctl` directly. Its `release` and `resume`
+actions ask the external daemon CLI to stop or start only its own
+`edifier-qr65.service` systemd **user** service. They do not affect a system
+service and require no root privileges.
+
 While connected, the bar-icon tooltip reports the requested display color and
 device-confirmed command as `HEX: #RRGGBB -> #RRGGBB`. Equal values indicate
 literal matching; different values expose the active calibration transform.
@@ -170,21 +182,35 @@ Validate a checkout against Omarchy's official plugin rules:
 
 ```bash
 omarchy plugin validate .
+scripts/check-release-metadata.sh
+scripts/lint-qml.sh
 node --test service.test.cjs
 ```
 
-CI runs the same official layout validation against a pinned Omarchy revision.
+CI runs the same checks against a pinned current Omarchy revision.
 
 ## Marketplace safety boundary
 
-Marketplace installation adds QML plugin files only. This repository includes
-no privileged setup, daemon/backend payload, service unit, lifecycle installer,
-theme hook, raw BLE access, firmware operation, or arbitrary protocol control.
-The plugin invokes the fixed `~/.local/bin/edifier-qr65` executable with a small set of
-Consumer API v1 actions, bounds and validates returned JSON, rejects unsupported
-versions, and treats stale connected status as unavailable. Device access,
-command enforcement, persistence, and daemon lifecycle remain outside this
-plugin and under the separately managed daemon's boundary.
+Marketplace installation clones this repository's complete tracked tree,
+including documentation, tests, CI metadata, and inert development scripts;
+Omarchy loads only the QML entry points declared in `manifest.json`. The tree
+contains no privileged setup, daemon/backend payload, runtime executable,
+service unit, lifecycle installer, theme hook, auto-discovered agent
+instructions, raw BLE access, firmware operation, or arbitrary protocol
+control.
+
+When enabled, the service automatically invokes the fixed
+`~/.local/bin/edifier-qr65` launcher at startup and every eight seconds. It uses
+fixed argument arrays, a minimal environment, an external TERM-to-KILL deadline,
+bounded output collection, and a second QML watchdog. Returned JSON is strictly
+validated, unsupported versions are rejected, and stale connected status is
+treated as unavailable. Release and resume are the user-service operations
+described above. Device access, command enforcement, persistence, installation,
+updates, and removal remain under the separately managed daemon's boundary.
+
+Removing this plugin intentionally leaves the daemon, its user service,
+configuration, and state in place. The standard marketplace install therefore
+requires the manual daemon setup documented above.
 
 ## License
 

@@ -41,7 +41,22 @@ QtObject {
   property string pendingMode: ""
   property bool timedOut: false
 
-  readonly property string executable: (Quickshell.env("HOME") || "") + "/.local/bin/edifier-qr65"
+  readonly property string homeDirectory: String(Quickshell.env("HOME") || "")
+  readonly property string executable: homeDirectory === ""
+    ? "" : homeDirectory + "/.local/bin/edifier-qr65"
+  readonly property string timeoutExecutable: "/usr/bin/timeout"
+  readonly property int commandTimeoutSeconds: 15
+  readonly property int streamCharacterLimit: 16384
+  readonly property var processEnvironment: ({
+    "PATH": "/usr/bin:/bin",
+    "HOME": homeDirectory,
+    "XDG_CONFIG_HOME": String(Quickshell.env("XDG_CONFIG_HOME") || homeDirectory + "/.config"),
+    "XDG_STATE_HOME": String(Quickshell.env("XDG_STATE_HOME") || homeDirectory + "/.local/state"),
+    "XDG_RUNTIME_DIR": String(Quickshell.env("XDG_RUNTIME_DIR") || ""),
+    "DBUS_SESSION_BUS_ADDRESS": String(Quickshell.env("DBUS_SESSION_BUS_ADDRESS") || ""),
+    "LANG": String(Quickshell.env("LANG") || "C.UTF-8"),
+    "LC_ALL": "C.UTF-8"
+  })
   readonly property string themeAccent: String(Color.accent || "").toUpperCase()
   readonly property bool themeAccentValid: validColor(themeAccent, false)
   readonly property int statusHeartbeatMaxAgeSec: 60
@@ -58,6 +73,23 @@ QtObject {
     var text = String(value || "").trim()
     if (text.length > 512) text = text.slice(0, 509) + "..."
     return text || fallback
+  }
+
+  function guardStream(stream) {
+    if (stream.overflowed) return
+    var length = String(stream.text || "").length
+    if (length > 0) stream.sawData = true
+    if (length > streamCharacterLimit) {
+      stream.overflowed = true
+      if (commandProcess.running) commandProcess.running = false
+    }
+  }
+
+  function resetStreams() {
+    commandOut.overflowed = false
+    commandOut.sawData = false
+    commandErr.overflowed = false
+    commandErr.sawData = false
   }
 
   function setUnavailable(reason) {
@@ -153,8 +185,8 @@ QtObject {
     connection = status.connection
     message = status.message
     updatedAt = status.updatedAt
-    available = true
-    error = ""
+    available = connection !== "error"
+    error = available ? "" : boundedDiagnostic(message, "QR65 status reported an error.")
     pendingMode = ""
     queueThemeColor()
     return true
@@ -212,8 +244,9 @@ QtObject {
     currentKind = kind
     activeDynamicColor = kind === "dynamic" ? args[2] : ""
     timedOut = false
-    commandProcess.command = [executable].concat(args)
-    timeoutTimer.restart()
+    resetStreams()
+    commandProcess.command = [timeoutExecutable, "-k", "2",
+      String(commandTimeoutSeconds), executable].concat(args)
     commandProcess.running = true
     return true
   }
@@ -228,6 +261,11 @@ QtObject {
   }
 
   function lightingAvailable() {
+    if (!ready) {
+      actionMessage = "QR65 status is unavailable."
+      actionMessageTimer.restart()
+      return false
+    }
     if (connection !== "released") return true
     actionMessage = "Resume QR65 control before changing lighting."
     actionMessageTimer.restart()
@@ -361,6 +399,10 @@ QtObject {
     function staticColor(color: string): bool { return root.setStatic(color) }
   }
   Component.onCompleted: refresh()
+  Component.onDestruction: {
+    timeoutTimer.stop()
+    if (commandProcess.running) commandProcess.running = false
+  }
 
   property Timer pollTimer: Timer {
     interval: 8000
@@ -377,7 +419,7 @@ QtObject {
   }
 
   property Timer timeoutTimer: Timer {
-    interval: 20000
+    interval: (root.commandTimeoutSeconds + 3) * 1000
     onTriggered: {
       root.timedOut = true
       root.terminating = true
@@ -395,24 +437,50 @@ QtObject {
   property Process commandProcess: Process {
     running: false
     command: []
-    stdout: StdioCollector { id: commandOut; waitForEnd: true }
-    stderr: StdioCollector { id: commandErr; waitForEnd: true }
+    clearEnvironment: true
+    environment: root.processEnvironment
+    stdout: StdioCollector {
+      id: commandOut
+      property bool overflowed: false
+      property bool sawData: false
+      waitForEnd: false
+      onDataChanged: root.guardStream(commandOut)
+    }
+    stderr: StdioCollector {
+      id: commandErr
+      property bool overflowed: false
+      property bool sawData: false
+      waitForEnd: false
+      onDataChanged: root.guardStream(commandErr)
+    }
 
+    onStarted: root.timeoutTimer.restart()
     onExited: function(exitCode) {
       root.timeoutTimer.stop()
       var kind = root.currentKind
+      var overflowed = commandOut.overflowed || commandErr.overflowed
+      var commandTimedOut = root.timedOut || exitCode === 124
       root.currentKind = ""
       root.activeDynamicColor = ""
-      if (!root.timedOut) {
+      if (overflowed) {
+        root.invalidateApi("QR65 command produced too much output and was stopped.")
+      } else if (commandTimedOut) {
+        root.invalidateApi("QR65 command timed out.")
+      } else {
         if (kind === "api") {
-          if (exitCode === 0 && root.applyApi(commandOut.text)) root.queuedStatus = true
+          if (exitCode === 0 && commandOut.sawData && root.applyApi(commandOut.text))
+            root.queuedStatus = true
+          else if (exitCode === 0)
+            root.invalidateApi("Edifier QR65 daemon returned no API metadata.")
           else if (exitCode !== 0) {
-            root.invalidateApi(root.boundedDiagnostic(commandErr.text,
+            root.invalidateApi(root.boundedDiagnostic(commandErr.sawData ? commandErr.text : "",
               "Edifier QR65 daemon is not installed or unavailable."))
           }
         } else if (kind === "status") {
-          if (exitCode === 0) root.applyStatus(commandOut.text)
-          else root.invalidateApi(root.boundedDiagnostic(commandErr.text, "QR65 status command failed."))
+          if (exitCode === 0 && commandOut.sawData) root.applyStatus(commandOut.text)
+          else if (exitCode === 0) root.invalidateApi("QR65 returned no status.")
+          else root.invalidateApi(root.boundedDiagnostic(
+            commandErr.sawData ? commandErr.text : "", "QR65 status command failed."))
         } else {
           if (exitCode === 0) {
             root.actionMessage = kind === "dynamic" ? "Following theme colors."
@@ -423,7 +491,8 @@ QtObject {
             else if (kind === "resume") root.actionMessage = "QR65 daemon resumed."
             root.error = ""
           } else {
-            root.actionMessage = root.boundedDiagnostic(commandErr.text, "QR65 command failed.")
+            root.actionMessage = root.boundedDiagnostic(
+              commandErr.sawData ? commandErr.text : "", "QR65 command failed.")
             if (kind === "dynamic" || kind === "static") root.pendingMode = ""
           }
           root.actionMessageTimer.restart()
