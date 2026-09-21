@@ -4,6 +4,13 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-09-21
+
+### Fixed
+
+- Keep daemon command cleanup reliable when Quickshell destroys the service.
+- Reject empty successful responses instead of reusing previous collector data.
+
 ## [0.1.1] - 2026-09-21
 
 ### Added
@@ -22,5 +29,6 @@ All notable changes to this project are documented in this file.
 
 - Surface invalid theme accents and daemon failures instead of silently ignoring them.
 
-[Unreleased]: https://github.com/LightQv/omarchy-edifier-qr65/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/LightQv/omarchy-edifier-qr65/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/LightQv/omarchy-edifier-qr65/releases/tag/v0.1.2
 [0.1.1]: https://github.com/LightQv/omarchy-edifier-qr65/releases/tag/v0.1.1
