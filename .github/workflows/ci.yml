@@ -13,19 +13,33 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
-      - name: Parse QML
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends qt6-declarative-dev-tools
-          for file in BarWidget.qml Panel.qml Qr65Icon.qml Service.qml; do
-            /usr/lib/qt6/bin/qmlformat "$file" >/dev/null
-          done
-      - name: Test service behavior
-        run: node --test service.test.cjs
+        with:
+          path: plugin
+          persist-credentials: false
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          repository: omacom/omarchy
+          ref: 8f324c90b82790d31ab33565441e07cbdb8d2308
+          path: omarchy
+          sparse-checkout: |
+            bin/omarchy-plugin-validate
+            shell/
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: Install Qt 6 QML lint
+        run: python -m pip install --disable-pip-version-check --no-cache-dir PySide6-Essentials==6.11.2
       - name: Check official plugin layout
+        run: ./omarchy/bin/omarchy-plugin-validate ./plugin
+      - name: Validate release metadata
+        run: bash ./plugin/scripts/check-release-metadata.sh
+      - name: Lint QML
         env:
-          OMARCHY_COMMIT: 5b91db503c904bbfc5f34bdaaa9c708814958f3d
+          OMARCHY_SHELL_PATH: ${{ github.workspace }}/omarchy/shell
+        run: bash ./plugin/scripts/lint-qml.sh
+      - name: Test service behavior
+        working-directory: plugin
+        run: node --test service.test.cjs
+      - name: Check shell syntax and whitespace
         run: |
-          git clone --filter=blob:none --no-checkout https://github.com/omacom/omarchy.git /tmp/omarchy
-          git -C /tmp/omarchy checkout --detach "$OMARCHY_COMMIT"
-          PATH="/tmp/omarchy/bin:$PATH" omarchy-plugin-validate .
+          bash -n plugin/scripts/check-release-metadata.sh plugin/scripts/lint-qml.sh
+          git -C plugin diff --check

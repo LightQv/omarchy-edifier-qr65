@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "lightqv.edifier-qr65",
   "name": "Edifier QR65",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "QR65 ambient-light controls for the external Edifier QR65 daemon.",
   "author": "lightqv",
   "license": "MIT",
