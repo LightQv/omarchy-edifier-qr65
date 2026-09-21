@@ -194,19 +194,21 @@ CI runs the same checks against a pinned current Omarchy revision.
 Marketplace installation clones this repository's complete tracked tree,
 including documentation, tests, CI metadata, and inert development scripts;
 Omarchy loads only the QML entry points declared in `manifest.json`. The tree
-contains no privileged setup, daemon/backend payload, runtime executable,
-service unit, lifecycle installer, theme hook, auto-discovered agent
-instructions, raw BLE access, firmware operation, or arbitrary protocol
-control.
+contains one runtime process supervisor, but no privileged setup,
+daemon/backend payload, service unit, lifecycle installer, theme hook,
+auto-discovered agent instructions, raw BLE access, firmware operation, or
+arbitrary protocol control.
 
 When enabled, the service automatically invokes the fixed
-`~/.local/bin/edifier-qr65` launcher at startup and every eight seconds. It uses
-fixed argument arrays, a minimal environment, an external TERM-to-KILL deadline,
-bounded output collection, and a second QML watchdog. Returned JSON is strictly
-validated, unsupported versions are rejected, and stale connected status is
-treated as unavailable. Release and resume are the user-service operations
-described above. Device access, command enforcement, persistence, installation,
-updates, and removal remain under the separately managed daemon's boundary.
+`~/.local/bin/edifier-qr65` launcher at startup and every eight seconds. A
+bundled supervisor allows only the documented Consumer API operations, owns the
+daemon command's process group, kills it if the supervisor dies, enforces a
+TERM-to-KILL deadline, and caps both output streams. QML adds a second output
+cap and watchdog. Returned JSON is strictly validated, unsupported versions are
+rejected, and stale connected status is treated as unavailable. Release and
+resume are the user-service operations described above. Device access, command
+enforcement, persistence, installation, updates, and removal remain under the
+separately managed daemon's boundary.
 
 Removing this plugin intentionally leaves the daemon, its user service,
 configuration, and state in place. The standard marketplace install therefore

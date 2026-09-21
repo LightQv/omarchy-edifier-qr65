@@ -1,12 +1,15 @@
-const { readFileSync } = require('node:fs');
+const { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } = require('node:fs');
 const vm = require('node:vm');
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
 const { spawn } = require('node:child_process');
+const { tmpdir } = require('node:os');
+const { join } = require('node:path');
 
 // Exercise the service's actual JS functions. The release checklist covers
 // Process integration and reactive bindings, which this harness does not emulate.
 const source = readFileSync(`${__dirname}/Service.qml`, 'utf8');
+const supervisor = `${__dirname}/scripts/run-edifier-qr65`;
 function service() {
   const calls = [];
   const context = vm.createContext({
@@ -16,7 +19,7 @@ function service() {
     apiVersion: 1, daemonVersion: '0.1.1',
     activeDynamicColor: '', requestedColor: '#FFFFFF', actionMessage: '',
     executable: '/home/test/.local/bin/edifier-qr65',
-    timeoutExecutable: '/usr/bin/timeout', commandTimeoutSeconds: 15,
+    supervisorExecutable: supervisor, commandTimeoutSeconds: 15,
     streamCharacterLimit: 16384,
     version: 0, configuredStaticColor: '#FFFFFF', configuredBrightness: -1,
     colorMatching: false, requestedSource: '', appliedColor: '', appliedBrightness: -1,
@@ -35,6 +38,35 @@ function service() {
     vm.runInContext(match[0], context);
   }
   return { context, calls };
+}
+
+async function waitForFile(path, timeout = 3000) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    try { return Number(readFileSync(path, 'utf8')); } catch {}
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
+  throw new Error(`file did not appear: ${path}`);
+}
+
+async function waitForGone(pid, timeout = 3000) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    try { process.kill(pid, 0); } catch (error) {
+      if (error.code === 'ESRCH') return;
+      throw error;
+    }
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
+  throw new Error(`process survived cleanup: ${pid}`);
+}
+
+async function waitForClose(child, timeout = 5000) {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  await Promise.race([
+    new Promise(resolve => child.once('close', resolve)),
+    new Promise((_, reject) => setTimeout(() => reject(new Error('process did not exit')), timeout)),
+  ]);
 }
 
 test('Follow Theme sends the current accent from static mode', () => {
@@ -198,38 +230,84 @@ test('stream freshness resets between helper runs', () => {
   assert.match(source, /exitCode === 0 && commandOut\.sawData/);
 });
 
-test('deadline wrapper forwards termination and kills a resistant child', async () => {
-  const wrapper = spawn('/usr/bin/timeout', ['-k', '1', '30', '/usr/bin/bash', '-c',
-    'trap "" TERM; echo $$; exec /usr/bin/sleep 30']);
+test('supervisor death kills a resistant daemon descendant', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'qr65-supervisor-'));
+  const bin = join(home, '.local', 'bin');
+  mkdirSync(bin, { recursive: true });
+  const helper = join(bin, 'edifier-qr65');
+  writeFileSync(helper, '#!/usr/bin/bash\n(trap "" TERM; echo $BASHPID > "$HOME/child.pid"; exec /usr/bin/sleep 30) >/dev/null 2>&1 &\nwait\n');
+  chmodSync(helper, 0o755);
+  const wrapper = spawn(supervisor, ['status', '--json'], {
+    env: { HOME: home, PATH: '/usr/bin:/bin', LC_ALL: 'C.UTF-8' },
+  });
   let childPid = 0;
   try {
-    childPid = Number(await new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('child did not start')), 2000);
-      wrapper.stdout.once('data', data => {
-        clearTimeout(timer);
-        resolve(String(data).trim());
-      });
-      wrapper.once('error', reject);
-    }));
-    const closed = new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('deadline wrapper did not exit')), 5000);
-      wrapper.once('close', () => { clearTimeout(timer); resolve(); });
-    });
-    wrapper.kill('SIGTERM');
-    await closed;
-    assert.throws(() => process.kill(childPid, 0), error => error.code === 'ESRCH');
+    childPid = await waitForFile(join(home, 'child.pid'));
+    wrapper.kill('SIGKILL');
+    await waitForClose(wrapper);
+    await waitForGone(childPid);
   } finally {
     if (wrapper.exitCode === null) wrapper.kill('SIGKILL');
     if (childPid > 0) {
       try { process.kill(childPid, 'SIGKILL'); } catch {}
     }
+    rmSync(home, { recursive: true, force: true });
   }
 });
 
-test('process execution uses a clean environment and external kill deadline', () => {
+test('supervisor cancellation remains bounded after output pipes close', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'qr65-closed-pipes-'));
+  const bin = join(home, '.local', 'bin');
+  mkdirSync(bin, { recursive: true });
+  const helper = join(bin, 'edifier-qr65');
+  writeFileSync(helper, '#!/usr/bin/bash\necho $$ > "$HOME/child.pid"\nexec 1>&- 2>&-\ntrap "" TERM\nexec /usr/bin/sleep 30\n');
+  chmodSync(helper, 0o755);
+  const wrapper = spawn(supervisor, ['status', '--json'], {
+    env: { HOME: home, PATH: '/usr/bin:/bin', LC_ALL: 'C.UTF-8' },
+  });
+  let childPid = 0;
+  try {
+    childPid = await waitForFile(join(home, 'child.pid'));
+    wrapper.kill('SIGTERM');
+    await waitForClose(wrapper);
+    await waitForGone(childPid);
+  } finally {
+    if (wrapper.exitCode === null) wrapper.kill('SIGKILL');
+    if (childPid > 0) {
+      try { process.kill(childPid, 'SIGKILL'); } catch {}
+    }
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test('supervisor kills descendants after their group leader exits', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'qr65-descendant-'));
+  const bin = join(home, '.local', 'bin');
+  mkdirSync(bin, { recursive: true });
+  const helper = join(bin, 'edifier-qr65');
+  writeFileSync(helper, '#!/usr/bin/bash\n(trap "" TERM; echo $BASHPID > "$HOME/grandchild.pid"; exec /usr/bin/sleep 30) >/dev/null 2>&1 &\nexit 0\n');
+  chmodSync(helper, 0o755);
+  const wrapper = spawn(supervisor, ['status', '--json'], {
+    env: { HOME: home, PATH: '/usr/bin:/bin', LC_ALL: 'C.UTF-8' },
+  });
+  let descendantPid = 0;
+  try {
+    descendantPid = await waitForFile(join(home, 'grandchild.pid'));
+    await waitForClose(wrapper);
+    await waitForGone(descendantPid);
+  } finally {
+    if (wrapper.exitCode === null) wrapper.kill('SIGKILL');
+    if (descendantPid > 0) {
+      try { process.kill(descendantPid, 'SIGKILL'); } catch {}
+    }
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test('process execution uses a clean environment and bounded supervisor', () => {
   assert.match(source, /clearEnvironment:\s*true/);
   assert.match(source, /environment:\s*root\.processEnvironment/);
-  assert.match(source, /\[timeoutExecutable, "-k", "2",/);
+  assert.match(source, /commandProcess\.command = \[supervisorExecutable\]/);
   assert.match(source, /Component\.onDestruction:[^]*commandProcess\.running = false/);
   assert.match(source, /onDataChanged:\s*root\.guardStream\(commandOut\)/);
   assert.match(source, /onDataChanged:\s*root\.guardStream\(commandErr\)/);

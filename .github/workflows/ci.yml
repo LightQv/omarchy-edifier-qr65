@@ -38,7 +38,9 @@ jobs:
         run: bash ./plugin/scripts/lint-qml.sh
       - name: Test service behavior
         working-directory: plugin
-        run: node --test service.test.cjs
+        run: |
+          python -m py_compile scripts/run-edifier-qr65
+          node --test service.test.cjs
       - name: Check shell syntax and whitespace
         run: |
           bash -n plugin/scripts/check-release-metadata.sh plugin/scripts/lint-qml.sh

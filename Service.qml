@@ -44,7 +44,8 @@ QtObject {
   readonly property string homeDirectory: String(Quickshell.env("HOME") || "")
   readonly property string executable: homeDirectory === ""
     ? "" : homeDirectory + "/.local/bin/edifier-qr65"
-  readonly property string timeoutExecutable: "/usr/bin/timeout"
+  readonly property string supervisorExecutable: Qt.resolvedUrl("scripts/run-edifier-qr65")
+    .toString().replace(/^file:\/\//, "").split("/").map(decodeURIComponent).join("/")
   readonly property int commandTimeoutSeconds: 15
   readonly property int streamCharacterLimit: 16384
   readonly property var processEnvironment: ({
@@ -245,8 +246,7 @@ QtObject {
     activeDynamicColor = kind === "dynamic" ? args[2] : ""
     timedOut = false
     resetStreams()
-    commandProcess.command = [timeoutExecutable, "-k", "2",
-      String(commandTimeoutSeconds), executable].concat(args)
+    commandProcess.command = [supervisorExecutable].concat(args)
     commandProcess.running = true
     return true
   }

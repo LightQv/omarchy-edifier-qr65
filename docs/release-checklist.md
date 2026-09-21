@@ -8,6 +8,7 @@ Run this checklist against the exact commit intended for marketplace review.
 omarchy plugin validate .
 scripts/check-release-metadata.sh
 scripts/lint-qml.sh
+python -m py_compile scripts/run-edifier-qr65
 node --test service.test.cjs
 bash -n scripts/*.sh
 git diff --check
