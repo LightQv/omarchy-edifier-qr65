@@ -14,6 +14,10 @@ ambient lighting from the shell bar.
 
 ![Edifier QR65 Omarchy plugin showing the bar widget and lighting controls](docs/screenshot.png)
 
+Theme-following demo:
+
+https://github.com/user-attachments/assets/839cc808-bc67-4d25-a9b0-7885a3329d85
+
 ## Requirements
 
 - Omarchy with shell plugin support
